@@ -1,0 +1,19 @@
+{
+  "name": "game-sudoku-mb2",
+  "version": "1.0.0",
+  "description": "Modern Glassmorphism Sudoku Web App",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve .",
+    "deploy": "firebase deploy"
+  },
+  "keywords": ["sudoku", "game", "glassmorphism", "firebase"],
+  "author": "ceciliarenata",
+  "license": "MIT",
+  "dependencies": {
+    "firebase": "^11.4.0"
+  },
+  "devDependencies": {
+    "firebase-tools": "^13.31.0"
+  }
+}
