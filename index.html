@@ -669,16 +669,27 @@
       background: rgba(255, 152, 0, 0.12);
       border: 1px solid rgba(255, 152, 0, 0.3);
       color: #ffb74d;
-      padding: 2px 8px;
+      padding: 3px 10px;
       border-radius: 20px;
       font-weight: 600;
+      transition: all 0.3s ease;
     }
     .firebase-pill span {
-      width: 6px;
-      height: 6px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: #ff9800;
       box-shadow: 0 0 6px #ff9800;
+      transition: all 0.3s ease;
+    }
+    .firebase-pill.connected {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #6ee7b7;
+    }
+    .firebase-pill.connected span {
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
     }
 
     /* User Bar */
@@ -1403,8 +1414,8 @@
     <!-- Footer info & Firebase status -->
     <footer class="app-footer">
       <span>Sudoku Pro &copy; 2026</span>
-      <div class="firebase-pill" title="Terhubung ke backend cloud">
-        <span></span> Firebase Ready
+      <div class="firebase-pill" id="firebase-status-pill" title="Status koneksi Firebase Cloud (sudoku-1207a)">
+        <span id="firebase-status-dot"></span> <span id="firebase-status-text">Firebase Ready (sudoku-1207a)</span>
       </div>
     </footer>
   </div>
@@ -1663,6 +1674,121 @@
       <button id="btn-close-rules" class="btn-primary" style="justify-content: center; width: 100%; margin-top: 10px;">Mengerti</button>
     </div>
   </div>
+
+  <!-- Firebase Cloud Integration (App & Firestore) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
+    import { 
+      getFirestore, 
+      collection, 
+      doc, 
+      setDoc, 
+      getDoc, 
+      getDocs, 
+      query, 
+      orderBy, 
+      limit, 
+      serverTimestamp 
+    } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
+
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyCDsxMKGYhCk1keKB9_4z2EOjor-_Q8dWk",
+      authDomain: "sudoku-1207a.firebaseapp.com",
+      projectId: "sudoku-1207a",
+      storageBucket: "sudoku-1207a.firebasestorage.app",
+      messagingSenderId: "255682751265",
+      appId: "1:255682751265:web:726cae90ba2793b3e16c60"
+    };
+
+    // Initialize Firebase & Firestore
+    try {
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+
+      window.FirebaseBridge = {
+        isReady: true,
+        app,
+        db,
+        projectId: firebaseConfig.projectId,
+
+        async checkUsernameExists(username) {
+          try {
+            const clean = username.trim().toLowerCase();
+            const docRef = doc(db, "sudoku_users", clean);
+            const docSnap = await getDoc(docRef);
+            return docSnap.exists();
+          } catch (e) {
+            console.warn("Firebase checkUsernameExists warning:", e.message);
+            return false;
+          }
+        },
+
+        async saveUser(user) {
+          try {
+            const clean = user.username.trim().toLowerCase();
+            const docRef = doc(db, "sudoku_users", clean);
+            await setDoc(docRef, {
+              username: user.username,
+              avatar: user.avatar,
+              createdAt: user.createdAt || new Date().toISOString(),
+              gamesPlayed: user.gamesPlayed || 0,
+              gamesWon: user.gamesWon || 0,
+              bestScore: user.bestScore || 0,
+              scoresByDiff: user.scoresByDiff || {},
+              updatedAt: serverTimestamp()
+            }, { merge: true });
+            console.log("Firebase: User synced to cloud ->", user.username);
+          } catch (e) {
+            console.warn("Firebase saveUser warning:", e.message);
+          }
+        },
+
+        async saveScore(entry) {
+          try {
+            const colRef = collection(db, "sudoku_leaderboard");
+            const newDocRef = doc(colRef);
+            await setDoc(newDocRef, {
+              ...entry,
+              createdAt: serverTimestamp()
+            });
+            console.log("Firebase: Score synced to cloud ->", entry.score);
+          } catch (e) {
+            console.warn("Firebase saveScore warning:", e.message);
+          }
+        },
+
+        async fetchLeaderboard(difficultyFilter = "all") {
+          try {
+            const colRef = collection(db, "sudoku_leaderboard");
+            const q = query(colRef, orderBy("score", "desc"), limit(50));
+            const querySnapshot = await getDocs(q);
+            const list = [];
+            querySnapshot.forEach(docSnap => {
+              const data = docSnap.data();
+              if (difficultyFilter === "all" || data.difficulty === difficultyFilter) {
+                list.push({ id: docSnap.id, ...data });
+              }
+            });
+            return list;
+          } catch (e) {
+            console.warn("Firebase fetchLeaderboard warning:", e.message);
+            return [];
+          }
+        }
+      };
+
+      // Update footer status pill
+      const pill = document.getElementById("firebase-status-pill");
+      const text = document.getElementById("firebase-status-text");
+      if (pill) pill.classList.add("connected");
+      if (text) text.textContent = "Firebase Online (sudoku-1207a)";
+      console.log("Firebase connected successfully to sudoku-1207a");
+    } catch (err) {
+      console.error("Firebase init error:", err);
+      window.FirebaseBridge = { isReady: false };
+    }
+  </script>
 
   <!-- Audio Synthesizer & Game Logic -->
   <script>
@@ -2015,6 +2141,12 @@
         users.push(newUser);
         UserManager.saveUsers(users);
         UserManager.setActiveUsername(cleanName);
+
+        // Sync user profile to Firebase Firestore Cloud
+        if (window.FirebaseBridge && window.FirebaseBridge.isReady) {
+          window.FirebaseBridge.saveUser(newUser);
+        }
+
         return { success: true, user: newUser };
       }
 
@@ -2049,12 +2181,18 @@
           }
         }
         UserManager.saveUsers(users);
+
+        // Sync updated statistics to Firebase Firestore Cloud
+        if (window.FirebaseBridge && window.FirebaseBridge.isReady) {
+          window.FirebaseBridge.saveUser(users[idx]);
+        }
       }
     }
 
     /**
      * Leaderboard Manager
      * Menyimpan dan mengelola papan peringkat terbaik untuk semua tingkat kesulitan
+     * Terintegrasi dengan Firebase Firestore Cloud untuk Leaderboard Global
      */
     class LeaderboardManager {
       static STORAGE_KEY = 'sudoku_master_leaderboard';
@@ -2094,7 +2232,7 @@
         LeaderboardManager.seedDefaultScoresIfEmpty();
         const raw = localStorage.getItem(LeaderboardManager.STORAGE_KEY);
         const list = raw ? JSON.parse(raw) : [];
-        list.push({
+        const newEntry = {
           id: 'score_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
           username: entry.username,
           avatar: entry.avatar || '👤',
@@ -2106,8 +2244,33 @@
           mistakes: entry.mistakes,
           hintsUsed: entry.hintsUsed || 0,
           date: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
-        });
+        };
+        list.push(newEntry);
         localStorage.setItem(LeaderboardManager.STORAGE_KEY, JSON.stringify(list));
+
+        // Sync score entry to Firebase Firestore Cloud
+        if (window.FirebaseBridge && window.FirebaseBridge.isReady) {
+          window.FirebaseBridge.saveScore(newEntry);
+        }
+      }
+
+      static async syncCloudScores(difficultyFilter = 'all', callback = null) {
+        if (window.FirebaseBridge && window.FirebaseBridge.isReady) {
+          try {
+            const cloudScores = await window.FirebaseBridge.fetchLeaderboard(difficultyFilter);
+            if (cloudScores && cloudScores.length > 0) {
+              const localScores = LeaderboardManager.getScores(difficultyFilter);
+              const scoreMap = new Map();
+              localScores.forEach(s => scoreMap.set(`${s.username}_${s.score}_${s.timeSeconds}`, s));
+              cloudScores.forEach(s => scoreMap.set(`${s.username}_${s.score}_${s.timeSeconds}`, s));
+              const merged = Array.from(scoreMap.values());
+              merged.sort((a, b) => (b.score !== a.score ? b.score - a.score : a.timeSeconds - b.timeSeconds));
+              if (callback) callback(merged);
+            }
+          } catch (e) {
+            console.warn('syncCloudScores warning:', e);
+          }
+        }
       }
 
       static seedDefaultScoresIfEmpty() {
@@ -2901,19 +3064,7 @@
         });
       }
 
-      openLeaderboard(filter = 'all') {
-        this.currentLeaderboardFilter = filter;
-        const modal = document.getElementById('modal-leaderboard');
-        this.sound.playLeaderboard();
-
-        // Update active filter chip
-        const chips = document.querySelectorAll('.leaderboard-filters .filter-chip');
-        chips.forEach(c => {
-          if (c.dataset.filter === filter) c.classList.add('active');
-          else c.classList.remove('active');
-        });
-
-        const scores = LeaderboardManager.getScores(filter);
+      renderLeaderboardData(scores) {
         const podiumEl = document.getElementById('leaderboard-podium');
         const tbody = document.getElementById('leaderboard-table-body');
         const activeUser = UserManager.getActiveUser();
@@ -2921,10 +3072,9 @@
         podiumEl.innerHTML = '';
         tbody.innerHTML = '';
 
-        if (scores.length === 0) {
+        if (!scores || scores.length === 0) {
           podiumEl.innerHTML = `<div style="text-align:center; padding:14px; color:var(--text-dim); font-size:0.85rem;">Belum ada skor untuk level ini. Jadilah yang pertama!</div>`;
           tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:18px; color:var(--text-dim);">Belum ada riwayat permainan.</td></tr>`;
-          modal.classList.add('open');
           return;
         }
 
@@ -2974,8 +3124,31 @@
           `;
           tbody.appendChild(tr);
         });
+      }
 
+      openLeaderboard(filter = 'all') {
+        this.currentLeaderboardFilter = filter;
+        const modal = document.getElementById('modal-leaderboard');
+        this.sound.playLeaderboard();
+
+        // Update active filter chip
+        const chips = document.querySelectorAll('.leaderboard-filters .filter-chip');
+        chips.forEach(c => {
+          if (c.dataset.filter === filter) c.classList.add('active');
+          else c.classList.remove('active');
+        });
+
+        // 1. Render local scores immediately (no waiting/lag)
+        const scores = LeaderboardManager.getScores(filter);
+        this.renderLeaderboardData(scores);
         modal.classList.add('open');
+
+        // 2. Fetch and merge live global scores from Firebase Firestore
+        LeaderboardManager.syncCloudScores(filter, updatedScores => {
+          if (this.currentLeaderboardFilter === filter && modal.classList.contains('open')) {
+            this.renderLeaderboardData(updatedScores);
+          }
+        });
       }
 
       openProfile() {
